@@ -4,14 +4,23 @@ import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.LayeredConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
@@ -96,7 +105,8 @@ class ParseLocationRunnable implements Callable<Boolean> {
 //        }
 //        return "123";
 
-        CloseableHttpClient client  = HttpClients.createDefault();
+        CloseableHttpClient client  = //HttpClients.createDefault();
+                getHttpClient();
         HttpPost post = new HttpPost(url);
 
         RequestConfig config = RequestConfig.custom().setConnectTimeout(delay)
@@ -115,5 +125,34 @@ class ParseLocationRunnable implements Callable<Boolean> {
             e.printStackTrace();
             return "error information: " + e.toString();
         }
+    }
+
+
+    private static PoolingHttpClientConnectionManager clientConnectionManager = null;
+
+    static {
+        LayeredConnectionSocketFactory sslsf = null;
+
+        try {
+            sslsf = new SSLConnectionSocketFactory(SSLContext.getDefault());
+        } catch (NoSuchAlgorithmException e) {
+            log.error("创建SSL连接失败");
+        }
+
+        Registry<ConnectionSocketFactory> socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
+                .register("https", sslsf)
+                .register("http", new PlainConnectionSocketFactory())
+                .build();
+        clientConnectionManager = new PoolingHttpClientConnectionManager();
+        //设置最大连接数
+        clientConnectionManager.setMaxTotal(1500);
+        //设置每个路由的基础连接数
+        clientConnectionManager.setDefaultMaxPerRoute(1000);
+
+    }
+
+    private static CloseableHttpClient getHttpClient() {
+        CloseableHttpClient httpClient = HttpClients.custom().setConnectionManager(clientConnectionManager).build();
+        return httpClient;
     }
 }
